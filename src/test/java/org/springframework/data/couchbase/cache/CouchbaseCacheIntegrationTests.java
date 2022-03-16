@@ -57,7 +57,6 @@ class CouchbaseCacheIntegrationTests extends JavaIntegrationTests {
 		super.beforeEach();
 		cache = CouchbaseCacheManager.create(couchbaseTemplate.getCouchbaseClientFactory()).createCouchbaseCache("myCache",
 				CouchbaseCacheConfiguration.defaultCacheConfig());
-		clear(cache);
 		ApplicationContext ac = new AnnotationConfigApplicationContext(Config.class);
 		cacheManager = ac.getBean(CouchbaseCacheManager.class);
 		userRepository = ac.getBean(UserRepository.class);
@@ -66,17 +65,11 @@ class CouchbaseCacheIntegrationTests extends JavaIntegrationTests {
 	@AfterEach
 	@Override
 	public void afterEach() {
-		clear(cache);
+		cache.clear();
 		super.afterEach();
 	}
 
-	private void clear(CouchbaseCache c) {
-		couchbaseTemplate.getCouchbaseClientFactory().getCluster().query("SELECT count(*) from `" + bucketName() + "`",
-				QueryOptions.queryOptions().scanConsistency(REQUEST_PLUS));
-		c.clear();
-		couchbaseTemplate.getCouchbaseClientFactory().getCluster().query("SELECT count(*) from `" + bucketName() + "`",
-				QueryOptions.queryOptions().scanConsistency(REQUEST_PLUS));
-	}
+
 
 	@Test
 	void cachePutGet() {
@@ -109,17 +102,19 @@ class CouchbaseCacheIntegrationTests extends JavaIntegrationTests {
 		cache.put(user1.getId(), user1); // put user1
 		cache.put(user2.getId(), user2); // put user2
 		cache.evict(user1.getId()); // evict user1
+		assertNull(cache.get(user1.getId())); // get user1 -> not present
 		assertEquals(user2, cache.get(user2.getId()).get()); // get user2 -> present
 	}
 
 	@Test
-	void cacheHitMiss() {
+	void cacheClear() {
 		CacheUser user1 = new CacheUser(UUID.randomUUID().toString(), "first1", "last1");
 		CacheUser user2 = new CacheUser(UUID.randomUUID().toString(), "first2", "last2");
-		assertNull(cache.get(user2.getId())); // get user2 -> cacheMiss
-		cache.put(user1.getId(), null); // cache a null
-		assertNotNull(cache.get(user1.getId())); // cacheHit null
-		assertNull(cache.get(user1.getId()).get()); // fetch cached null
+		cache.put(user1.getId(), user1); // put user1
+		cache.put(user2.getId(), user2); // put user2
+		cache.clear();
+		assertNull(cache.get(user1.getId())); // get user1 -> not present
+		assertNull(cache.get(user2.getId())); // get user2 -> not present
 	}
 
 	@Test
