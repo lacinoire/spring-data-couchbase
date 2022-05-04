@@ -39,6 +39,8 @@ public interface TemplateSupport {
 
 	Long getCas(Object entity);
 
+	Object getId(Object entity);
+
 	String getJavaNameForEntity(Class<?> clazz);
 
 	void maybeEmitEvent(CouchbaseMappingEvent<?> event);

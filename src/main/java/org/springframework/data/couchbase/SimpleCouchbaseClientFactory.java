@@ -19,8 +19,10 @@ import java.time.Duration;
 import java.time.temporal.ChronoUnit;
 import java.util.function.Supplier;
 
+import com.couchbase.client.java.codec.JsonSerializer;
 import com.couchbase.client.java.transactions.ReactiveTransactionAttemptContext;
 import com.couchbase.client.java.transactions.TransactionAttemptContext;
+import com.couchbase.client.java.transactions.Transactions;
 import com.couchbase.client.java.transactions.config.TransactionsCleanupConfig;
 import com.couchbase.client.java.transactions.config.TransactionsConfig;
 import org.springframework.dao.support.PersistenceExceptionTranslator;
@@ -38,7 +40,7 @@ import com.couchbase.client.java.ClusterOptions;
 import com.couchbase.client.java.Collection;
 import com.couchbase.client.java.Scope;
 import com.couchbase.client.java.env.ClusterEnvironment;
-import com.couchbase.transactions.AttemptContextReactiveAccessor;
+import com.couchbase.client.java.transactions.AttemptContextReactiveAccessor;
 
 /**
  * The default implementation of a {@link CouchbaseClientFactory}.
@@ -52,6 +54,7 @@ public class SimpleCouchbaseClientFactory implements CouchbaseClientFactory {
 	private final Bucket bucket;
 	private final Scope scope;
 	private final PersistenceExceptionTranslator exceptionTranslator;
+	private JsonSerializer serializer = null;
 
 	public SimpleCouchbaseClientFactory(final String connectionString, final Authenticator authenticator,
 			final String bucketName) {
@@ -71,10 +74,12 @@ public class SimpleCouchbaseClientFactory implements CouchbaseClientFactory {
 				new OwnedSupplier<>(
 						Cluster.connect(connectionString, ClusterOptions.clusterOptions(authenticator).environment(environment))),
 				bucketName, scopeName);
+		this.serializer = environment.jsonSerializer();
 	}
 
 	public SimpleCouchbaseClientFactory(final Cluster cluster, final String bucketName, final String scopeName) {
 		this(() -> cluster, bucketName, scopeName);
+		this.serializer = cluster.environment().jsonSerializer();
 	}
 
 	private SimpleCouchbaseClientFactory(final Supplier<Cluster> cluster, final String bucketName,
@@ -128,15 +133,15 @@ public class SimpleCouchbaseClientFactory implements CouchbaseClientFactory {
 	}
 
 	@Override
-	public ClientSession getSession(ClientSessionOptions options, ReactiveTransactionAttemptContext atr) {
-		// todo gp needed?
-		return null;
-		// can't we just use ReactiveTransactionAttemptContext everywhere? Instead of creating TransactionAttemptContext(atr), then
+	public ClientSession getSession(ClientSessionOptions options,
+																	ReactiveTransactionAttemptContext atr) {
+		// can't we just use AttemptContextReactive everywhere? Instead of creating AttemptContext(atr), then
 		// accessing at.getACR() ?
-//		TransactionAttemptContext at = AttemptContextReactiveAccessor
-//				.from(atr != null ? atr : AttemptContextReactiveAccessor.newAttemptContextReactive(transactions.reactive()));
-//
-//		return new ClientSessionImpl(this, at);
+		if(atr == null){
+			atr = AttemptContextReactiveAccessor.from(AttemptContextReactiveAccessor.newAttemptContextReactive(AttemptContextReactiveAccessor.reactive(getCluster().transactions())), serializer);
+		}
+
+		return new ClientSessionImpl(this, atr);
 	}
 
 	// @Override

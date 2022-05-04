@@ -57,11 +57,11 @@ import org.springframework.transaction.annotation.Transactional;
 import com.couchbase.client.core.cnc.Event;
 
 /**
- * @author Christoph Strobl
- * @currentRead Shadow's Edge - Brent Weeks
+
  */
-// @ContextConfiguration - not needed??
+
 @IgnoreWhen(missesCapabilities = Capabilities.QUERY, clusterTypes = ClusterType.MOCKED)
+// cannot use callback. Needs commit/rollback
 @Transactional(transactionManager = BeanNames.COUCHBASE_TRANSACTION_MANAGER)
 @SpringJUnitConfig(CouchbaseTemplateTransactionIntegrationTests.Config.class)
 public class CouchbaseTemplateTransactionIntegrationTests extends JavaIntegrationTests {
@@ -131,8 +131,8 @@ public class CouchbaseTemplateTransactionIntegrationTests extends JavaIntegratio
 		});
 	}
 
-	@Rollback(false)
 	@Test // DATAMONGO-1920
+	@Rollback(false)
 	public void shouldOperateCommitCorrectly() {
 		Assassin hu = new Assassin("hu", "Hu Gibbet");
 		template.insertById(Assassin.class).one(hu);
@@ -140,12 +140,9 @@ public class CouchbaseTemplateTransactionIntegrationTests extends JavaIntegratio
 	}
 
 	@Test // DATAMONGO-1920
-	// @Rollback(false) by default on these tests
+	@Rollback(true)
 	public void shouldOperateRollbackCorrectly() {
 		Assassin vi = new Assassin("vi", "Viridiana Sovari");
-		try {
-			template.removeById(Assassin.class).one(vi.getId()); // could be something that is not an Assassin
-		} catch (DataRetrievalFailureException dnfe) {}
 		template.insertById(Assassin.class).one(vi);
 		assertAfterTransaction(vi).isNotPresent();
 	}

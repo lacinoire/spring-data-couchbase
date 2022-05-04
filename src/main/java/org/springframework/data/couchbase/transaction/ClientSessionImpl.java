@@ -1,10 +1,13 @@
 package org.springframework.data.couchbase.transaction;
 
 import com.couchbase.client.core.transaction.support.AttemptState;
+import com.couchbase.client.core.transaction.support.TransactionAttemptContextFactory;
 import com.couchbase.client.java.transactions.ReactiveTransactionAttemptContext;
 import com.couchbase.client.java.transactions.TransactionAttemptContext;
 import com.couchbase.client.java.transactions.Transactions;
 import com.couchbase.client.java.transactions.config.TransactionOptions;
+import com.couchbase.client.java.transactions.config.TransactionsConfig;
+import com.couchbase.client.java.transactions.AttemptContextReactiveAccessor;
 import org.apache.commons.logging.Log;
 import org.apache.commons.logging.LogFactory;
 import org.springframework.transaction.reactive.AbstractReactiveTransactionManager;
@@ -17,8 +20,6 @@ import java.time.temporal.ChronoUnit;
 import java.util.HashMap;
 import java.util.Locale;
 import java.util.Map;
-import java.util.Optional;
-import java.util.UUID;
 
 import org.reactivestreams.Publisher;
 import org.springframework.data.couchbase.CouchbaseClientFactory;
@@ -44,40 +45,24 @@ public class ClientSessionImpl implements ClientSession {
 	TransactionOptions transactionOptions;
 	TransactionContext ctx;
 	ReactiveTransactionAttemptContext atr = null;
-	TransactionAttemptContext at = null;
 	Map<Integer, TransactionResultHolder> getResultMap = new HashMap<>();
 
 	public ClientSessionImpl(){}
 
-	public ClientSessionImpl(ReactiveCouchbaseClientFactory couchbaseClientFactory, ReactiveTransactionAttemptContext atr) {
-		scopeRx = couchbaseClientFactory.getScope();
-		// todo gp hopefully none of this is needed
-//		this.config = config == null
-//				? TransactionConfigBuilder.create().expirationTime(Duration.ofSeconds(120)).build()
-//				: config;
-//		MergedTransactionConfig merged = new MergedTransactionConfig(this.config, Optional.empty());
-//		ClusterEnvironment environment = couchbaseClientFactory.getCluster().block().environment();
-//		ctx = new TransactionContext(environment.requestTracer(), environment.eventBus(), UUID.randomUUID().toString(),
-//				now(), Duration.ZERO, merged);
-		// does this not need an non-reactive TransactionAttemptContext?
+	public ClientSessionImpl(ReactiveCouchbaseClientFactory couchbaseClientFactory,  ReactiveTransactionAttemptContext atr) {
+		this.scopeRx = couchbaseClientFactory.getScope();
 		this.atr = atr;
+		System.err.println("new "+this);
 	}
 
-	public ClientSessionImpl(CouchbaseClientFactory couchbaseClientFactory, TransactionAttemptContext at) {
-		// todo gp hopefully none of this is needed
-//		this.transactions = transactions;
-		scope = couchbaseClientFactory.getScope();
-//		this.config = config == null
-//				? TransactionConfigBuilder.create().expirationTime(Duration.ofSeconds(120)).build()
-//				: config;
-//		MergedTransactionConfig merged = new MergedTransactionConfig(this.config, Optional.empty());
-		ClusterEnvironment environment = couchbaseClientFactory.getCluster().environment();
-//		ctx = new TransactionContext(environment.requestTracer(), environment.eventBus(), UUID.randomUUID().toString(),
-//				now(), Duration.ZERO, merged);
-		this.at = at;
-//		if(at != null){
-//			this.atr = AttemptContextReactiveAccessor.getACR(at);
-//		}
+	public ClientSessionImpl(CouchbaseClientFactory couchbaseClientFactory, ReactiveTransactionAttemptContext atr) {
+		this.scope = couchbaseClientFactory.getScope();
+		this.atr = atr;
+		System.err.println("NEW "+this);
+	}
+
+	private Transactions getTransactions(Transactions transactions) {
+		return transactions;
 	}
 
 	@Override
@@ -100,11 +85,6 @@ public class ClientSessionImpl implements ClientSession {
 
 	}
 
-	//@Override
-	//public void setAttemptContextReactive(ReactiveTransactionAttemptContext atr){
-	//	this.atr = atr;
-	//}
-
 	@Override
 	public ReactiveTransactionAttemptContext getReactiveTransactionAttemptContext(){
 		return atr;
@@ -112,16 +92,8 @@ public class ClientSessionImpl implements ClientSession {
 
 	@Override
 	public TransactionAttemptContext getTransactionAttemptContext(){
-		return at;
+		return atr == null? null : AttemptContextReactiveAccessor.blocking(atr);
 	}
-
-
-	// setter that returns `this`
-	//@Override
-	//public ClientSession with(ReactiveTransactionAttemptContext atr){
-	//	setAttemptContextReactive(atr);
-	//	return this;
-	//}
 
 	@Override
 	public TransactionOptions getTransactionOptions() {
@@ -136,6 +108,7 @@ public class ClientSessionImpl implements ClientSession {
 	// todo gp
 	@Override
 	public void startTransaction() {
+		System.err.println("startTransaction: "+this);
 		transactionState = AttemptState.PENDING;
 	}
 
@@ -179,20 +152,22 @@ public class ClientSessionImpl implements ClientSession {
 		}
 	}
 
-	public Mono<ReactiveTransactionAttemptContext> executeImplicitCommit(ReactiveTransactionAttemptContext ctx) {
-		return Mono.defer(() -> {
+	public Mono<Void> executeImplicitCommit(ReactiveTransactionAttemptContext ctx) {
+
 			if (logger.isDebugEnabled()) {
 				logger.debug(String.format("About to commit ctx %s",	ctx));
 			}
 			// If app has not explicitly performed a commit, assume they want to do so anyway
 			if (0 != 1 /*!ctx.isDone()*/) {
 				if (0 == 1 /*ctx.serialized().isPresent()*/) {
-					return Mono.just(ctx);
+					return  Mono.empty(); // Mono.just(ctx);
 				} else {
 					//System.err.println(ctx.attemptId()+ " doing implicit commit"); // ctx.LOGGER.trace();
-					System.err.println("doing implicit commit");
+					System.err.println("doing implicit commit: "+this);
+					return AttemptContextReactiveAccessor.implicitCommit(atr, false);
+
 					// todo gp ctx.commit() has gone in the SDK integration.  Do we need this logic though?
-					return Mono.empty();
+					//return Mono.empty();
 //					if(ctx != null) {
 //						return ctx.commit()
 //								.then(Mono.just(ctx))
@@ -206,9 +181,8 @@ public class ClientSessionImpl implements ClientSession {
 			} else {
 				System.err.println("Transaction already done");
 				//System.err.println(ctx.attemptId()+" Transaction already done"); // // ctx.LOGGER.trace();
-				return Mono.just(ctx);
+				return Mono.empty(); // Mono.just(ctx);
 			}
-		});
 	}
 
 
@@ -217,7 +191,7 @@ public class ClientSessionImpl implements ClientSession {
 	public Publisher<Void> abortTransaction() {
 		System.err.println("**** abortTransaction ****");
 //		Assert.notNull(transactions, "transactions");
-		Assert.notNull(ctx, "ctx");
+//		Assert.notNull(ctx, "ctx");
 //		Assert.notNull(ctx.serialized(), "ctx.serialized()");
 //		if (ctx.serialized().isPresent()) {
 //			Assert.notNull(ctx.serialized().get(), "ctx.serialized().get()");
@@ -288,5 +262,15 @@ public class ClientSessionImpl implements ClientSession {
 
 	private static Duration now() {
 		return Duration.of(System.nanoTime(), ChronoUnit.NANOS);
+	}
+
+	public String toString(){
+		StringBuffer sb = new StringBuffer();
+		sb.append(this.getClass().getSimpleName()+"@"+System.identityHashCode(this));
+		sb.append("{");
+		sb.append("atr: "+ ( atr == null ? null : atr.toString().replace("com.couchbase.client.java.transactions.","")));
+		sb.append(", state: "+transactionState);
+		sb.append("}");
+		return sb.toString();
 	}
 }

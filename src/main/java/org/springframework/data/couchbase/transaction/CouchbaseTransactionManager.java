@@ -17,6 +17,8 @@
 package org.springframework.data.couchbase.transaction;
 
 import com.couchbase.client.java.transactions.ReactiveTransactionAttemptContext;
+import com.couchbase.client.java.transactions.TransactionAttemptContext;
+import com.couchbase.client.java.transactions.Transactions;
 import com.couchbase.client.java.transactions.config.TransactionOptions;
 import org.springframework.beans.factory.InitializingBean;
 import org.springframework.data.couchbase.CouchbaseClientFactory;
@@ -66,6 +68,7 @@ import reactor.core.publisher.Mono;
 public class CouchbaseTransactionManager extends AbstractPlatformTransactionManager
 		implements ResourceTransactionManager, InitializingBean {
 
+	private Transactions transactions;
 	private @Nullable CouchbaseClientFactory databaseFactory;
 	private @Nullable TransactionOptions options;
 
@@ -90,12 +93,14 @@ public class CouchbaseTransactionManager extends AbstractPlatformTransactionMana
 	 *
 	 * @param databaseFactory must not be {@literal null}. @//param options can be {@literal null}.
 	 */
-	public CouchbaseTransactionManager(CouchbaseClientFactory databaseFactory) {
+	public CouchbaseTransactionManager(CouchbaseClientFactory databaseFactory, @Nullable TransactionOptions options) {
 
 		Assert.notNull(databaseFactory, "DbFactory must not be null!");
 		System.err.println(this);
 		System.err.println(databaseFactory.getCluster());
 		this.databaseFactory = databaseFactory;
+		this.options = options;
+		this.transactions = 	databaseFactory.getCluster().transactions();
 	}
 
 	/*
@@ -149,7 +154,19 @@ public class CouchbaseTransactionManager extends AbstractPlatformTransactionMana
 			logger.debug(String.format("Started transaction for session %s.", debugString(resourceHolder.getSession())));
 		}
 
+		// Setting ThreadLocal storage
+
+		// prepareSynchronization() call in AbstractPlatformTransactionManager.startTransactions() does some binding
+
+		TransactionSynchronizationManager.setActualTransactionActive(true);
+		//TransactionSynchronizationManager.initSynchronization();
+		TransactionSynchronizationManager.unbindResourceIfPossible(TransactionAttemptContext.class);
+		TransactionSynchronizationManager.bindResource(TransactionAttemptContext.class, resourceHolder.getSession().getReactiveTransactionAttemptContext());
+
 		resourceHolder.setSynchronizedWithTransaction(true);
+
+		TransactionSynchronizationManager.unbindResourceIfPossible( getRequiredDatabaseFactory().getCluster());
+
 		System.err.println("CouchbaseTransactionManager: "+this);
 		System.err.println("bindResource: "+ getRequiredDatabaseFactory().getCluster()+" value: "+resourceHolder);
 		TransactionSynchronizationManager.bindResource(getRequiredDatabaseFactory().getCluster(), resourceHolder);

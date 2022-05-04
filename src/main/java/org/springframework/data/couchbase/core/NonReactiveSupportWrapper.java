@@ -72,6 +72,11 @@ public class NonReactiveSupportWrapper implements ReactiveTemplateSupport {
 	}
 
 	@Override
+	public Object getId(Object entity) {
+		return support.getId(entity);
+	}
+
+	@Override
 	public String getJavaNameForEntity(Class<?> clazz) {
 		return support.getJavaNameForEntity(clazz);
 	}

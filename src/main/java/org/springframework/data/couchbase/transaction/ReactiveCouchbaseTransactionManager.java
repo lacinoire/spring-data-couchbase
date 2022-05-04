@@ -15,6 +15,7 @@
  */
 package org.springframework.data.couchbase.transaction;
 
+import com.couchbase.client.java.transactions.Transactions;
 import org.springframework.data.couchbase.ReactiveCouchbaseClientFactory;
 import reactor.core.publisher.Mono;
 
@@ -65,6 +66,8 @@ public class ReactiveCouchbaseTransactionManager extends AbstractReactiveTransac
 		implements InitializingBean {
 
 	private @Nullable ReactiveCouchbaseClientFactory databaseFactory; // (why) does this need to be reactive?
+	private @Nullable
+	Transactions transactions;
 
 	/**
 	 * Create a new {@link ReactiveCouchbaseTransactionManager} for bean-style usage.
@@ -93,15 +96,15 @@ public class ReactiveCouchbaseTransactionManager extends AbstractReactiveTransac
 		System.err.println("ReactiveCouchbaseTransactionManager : created");
 	}
 
-	/*
-	public ReactiveCouchbaseTransactionManager(CouchbaseClientFactory databaseFactory,
+
+	public ReactiveCouchbaseTransactionManager(ReactiveCouchbaseClientFactory databaseFactory,
 																						 @Nullable Transactions transactions) {
 		Assert.notNull(databaseFactory, "DatabaseFactory must not be null!");
-		this.databaseFactory = null; // databaseFactory; // should be a clone? TransactionSynchronizationManager binds objs to it
+		this.databaseFactory = databaseFactory; // databaseFactory; // should be a clone? TransactionSynchronizationManager binds objs to it
 		this.transactions = transactions;
 		System.err.println("ReactiveCouchbaseTransactionManager : created Transactions: " + transactions);
 	}
-*/
+
 
 	/*
 	 * (non-Javadoc)
@@ -142,7 +145,7 @@ public class ReactiveCouchbaseTransactionManager extends AbstractReactiveTransac
 		return Mono.defer(() -> {
 
 			ReactiveCouchbaseTransactionObject couchbaseTransactionObject = extractCouchbaseTransaction(transaction);
-
+			// TODO mr - why aren't we creating the AttemptContext here in the client session in the resourceholder?
 			Mono<ReactiveCouchbaseResourceHolder> holder = newResourceHolder(definition,
 					ClientSessionOptions.builder().causallyConsistent(true).build());
 			return holder.doOnNext(resourceHolder -> {
@@ -341,8 +344,8 @@ public class ReactiveCouchbaseTransactionManager extends AbstractReactiveTransac
 
 		ReactiveCouchbaseClientFactory dbFactory = getRequiredDatabaseFactory();
 		// TODO MSR : config should be derived from config that was used for `transactions`
-		Mono<ClientSession> sess = dbFactory.getSession(options);
-		return sess.map(session -> new ReactiveCouchbaseResourceHolder(session, dbFactory));
+		Mono<ClientSession> sess = Mono.just(dbFactory.getSession(options, null));
+		return sess.map(session -> new ReactiveCouchbaseResourceHolder(session));
 	}
 
 	/**

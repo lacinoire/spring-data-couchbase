@@ -15,10 +15,16 @@
  */
 package org.springframework.data.couchbase.core;
 
+import com.couchbase.client.core.error.transaction.RetryTransactionException;
+import com.couchbase.client.core.transaction.CoreTransactionGetResult;
+import com.couchbase.client.java.ReactiveScope;
+import com.couchbase.client.java.transactions.TransactionGetResult;
+import org.springframework.data.couchbase.ReactiveCouchbaseClientFactory;
 import org.springframework.data.couchbase.transaction.CouchbaseStuffHandle;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
+import java.lang.reflect.Method;
 import java.util.Collection;
 import java.util.Optional;
 
@@ -70,8 +76,8 @@ public class ReactiveRemoveByIdOperationSupport implements ReactiveRemoveByIdOpe
 		private final CouchbaseStuffHandle txCtx;
 
 		ReactiveRemoveByIdSupport(final ReactiveCouchbaseTemplate template, final Class<?> domainType, final String scope,
-															final String collection, final RemoveOptions options, final PersistTo persistTo, final ReplicateTo replicateTo,
-															final DurabilityLevel durabilityLevel, Long cas, CouchbaseStuffHandle txCtx) {
+				final String collection, final RemoveOptions options, final PersistTo persistTo, final ReplicateTo replicateTo,
+				final DurabilityLevel durabilityLevel, Long cas, CouchbaseStuffHandle txCtx) {
 			this.template = template;
 			this.domainType = domainType;
 			this.scope = scope;
@@ -88,33 +94,73 @@ public class ReactiveRemoveByIdOperationSupport implements ReactiveRemoveByIdOpe
 		public Mono<RemoveResult> one(final String id) {
 			PseudoArgs<RemoveOptions> pArgs = new PseudoArgs<>(template, scope, collection, options, txCtx, domainType);
 			LOG.trace("removeById {}", pArgs);
-			ReactiveCollection rc = template.getCouchbaseClientFactory().withScope(pArgs.getScope())
-					.getCollection(pArgs.getCollection()).block().reactive();
-			Mono<RemoveResult> removeResult;
-			if (pArgs.getTxOp() == null) {
-				removeResult = rc.remove(id, buildRemoveOptions(pArgs.getOptions())).map(r -> RemoveResult.from(id, r));
-			} else {
-				Transcoder transcoder = template.getCouchbaseClientFactory().getCluster().block().environment().transcoder();
-				// todo gp we definitely don't want to be creating TransactionGetResult.  It's essential that this is passed
-				// from a previous ctx.get().  So we know if this doc is in a transaction and can safely detect
-				// write-write conflicts.  This will be a blocker.
-				// Looks like replace is solving this with a getTransactionHolder?
-//				TransactionGetResult doc = new TransactionGetResult(id, null, 0, rc, tl, null, Optional.empty(), transcoder,
-//						null);
-				removeResult = pArgs.getTxOp().getAttemptContextReactive().remove(null).map(r -> new RemoveResult(id, 0, null));
-			}
-			return removeResult.onErrorMap(throwable -> {
-				if (throwable instanceof RuntimeException) {
-					return template.potentiallyConvertRuntimeException((RuntimeException) throwable);
+			ReactiveCouchbaseClientFactory clientFactory = template.getCouchbaseClientFactory();
+			ReactiveCollection rc = clientFactory.withScope(pArgs.getScope()).getCollection(pArgs.getCollection()).block()
+					.reactive();
+			Mono<ReactiveCouchbaseTemplate> tmpl = template.doGetTemplate();
+			final Mono<RemoveResult> removeResult;
+
+			Mono<RemoveResult> allResult = tmpl.flatMap(tp -> tp.getCouchbaseClientFactory().getSession(null).flatMap(s -> {
+				if (s == null || s.getReactiveTransactionAttemptContext() == null) {
+					System.err.println("non-tx remove");
+					return rc.remove(id, buildRemoveOptions(pArgs.getOptions())).map(r -> RemoveResult.from(id, r));
 				} else {
-					return throwable;
-				}
-			});
+					System.err.println("tx remove");
+					// todo gp we definitely don't want to be creating TransactionGetResult. It's essential that this is passed
+					// from a previous ctx.get(). So we know if this doc is in a transaction and can safely detect
+					// write-write conflicts. This will be a blocker.
+					// Looks like replace is solving this with a getTransactionHolder?
+					if ( cas == null || cas == 0 ){
+						throw new IllegalArgumentException("cas must be supplied for tx remove");
+					}
+					Mono<TransactionGetResult> gr = s.getReactiveTransactionAttemptContext().get(rc, id);
+
+					// todo gp no CAS
+					return gr.flatMap(getResult -> {
+						CoreTransactionGetResult internal;
+						try {
+							Method method = TransactionGetResult.class.getDeclaredMethod("internal");
+							method.setAccessible(true);
+							internal = (CoreTransactionGetResult) method.invoke(getResult);
+						}
+						catch (Throwable err) {
+							throw new RuntimeException(err);
+						}
+
+						if (internal.cas() !=  cas) {
+							System.err.println("internal: "+internal.cas()+" object.cas: "+cas);
+							// todo gp really want to set internal state and raise a TransactionOperationFailed
+							throw new RetryTransactionException();
+						}
+						return s.getReactiveTransactionAttemptContext().remove(getResult)
+								.map(r -> new RemoveResult(id, 0, null));
+					});
+
+				}}).onErrorMap(throwable -> {
+					if (throwable instanceof RuntimeException) {
+						return template.potentiallyConvertRuntimeException((RuntimeException) throwable);
+					} else {
+						return throwable;
+					}
+				}));
+			return allResult;
+		}
+
+		@Override
+		public Mono<RemoveResult> oneEntity(Object entity) {
+			ReactiveRemoveByIdSupport op = new ReactiveRemoveByIdSupport(template, domainType, scope, collection, options, persistTo, replicateTo,
+					durabilityLevel, template.support().getCas(entity), txCtx);
+			return op.one(template.support().getId(entity).toString());
 		}
 
 		@Override
 		public Flux<RemoveResult> all(final Collection<String> ids) {
 			return Flux.fromIterable(ids).flatMap(this::one);
+		}
+
+		@Override
+		public Flux<RemoveResult> allEntities(Collection<Object> entities) {
+			return Flux.fromIterable(entities).flatMap(this::oneEntity);
 		}
 
 		private RemoveOptions buildRemoveOptions(RemoveOptions options) {

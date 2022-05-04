@@ -84,9 +84,20 @@ public class ExecutableRemoveByIdOperationSupport implements ExecutableRemoveByI
 		}
 
 		@Override
+		public RemoveResult oneEntity(final Object entity) {
+			return reactiveRemoveByIdSupport.oneEntity(entity).block();
+		}
+
+		@Override
 		public List<RemoveResult> all(final Collection<String> ids) {
 			return reactiveRemoveByIdSupport.all(ids).collectList().block();
 		}
+
+		@Override
+		public List<RemoveResult> allEntities(final Collection<Object> entities) {
+			return reactiveRemoveByIdSupport.allEntities(entities).collectList().block();
+		}
+
 
 		@Override
 		public RemoveByIdTxOrNot inCollection(final String collection) {

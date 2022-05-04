@@ -17,6 +17,7 @@ package org.springframework.data.couchbase.transactions;
 
 import static com.couchbase.client.java.query.QueryScanConsistency.REQUEST_PLUS;
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.springframework.data.couchbase.util.Util.assertInAnnotationTransaction;
 
 import com.couchbase.client.core.error.DocumentNotFoundException;
 import lombok.AllArgsConstructor;
@@ -28,7 +29,9 @@ import java.util.List;
 import java.util.concurrent.CopyOnWriteArrayList;
 
 import org.junit.jupiter.api.BeforeEach;
+import org.junit.jupiter.api.Disabled;
 import org.junit.jupiter.api.Test;
+import org.junit.jupiter.api.extension.ExtendWith;
 import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
@@ -47,9 +50,12 @@ import org.springframework.data.couchbase.util.JavaIntegrationTests;
 import org.springframework.data.domain.Persistable;
 import org.springframework.test.annotation.Rollback;
 import org.springframework.test.context.ContextConfiguration;
+import org.springframework.test.context.junit.jupiter.SpringExtension;
 import org.springframework.test.context.junit.jupiter.SpringJUnitConfig;
 import org.springframework.test.context.transaction.AfterTransaction;
 import org.springframework.test.context.transaction.BeforeTransaction;
+import org.springframework.test.context.transaction.TestTransaction;
+import org.springframework.transaction.annotation.EnableTransactionManagement;
 import org.springframework.transaction.annotation.Transactional;
 
 import com.couchbase.client.core.cnc.Event;
@@ -61,9 +67,10 @@ import com.example.demo.CouchbaseTransactionalTemplate;
  * @currentRead Shadow's Edge - Brent Weeks
  */
 
-@ContextConfiguration
+//@ContextConfiguration
+@ExtendWith({ SpringExtension.class })
 @IgnoreWhen(missesCapabilities = Capabilities.QUERY, clusterTypes = ClusterType.MOCKED)
-@Transactional(transactionManager = BeanNames.COUCHBASE_TRANSACTION_MANAGER)
+@Transactional(transactionManager = BeanNames.COUCHBASE_SIMPLE_CALLBACK_TRANSACTION_MANAGER)
 @SpringJUnitConfig(CouchbaseTemplateTransaction2IntegrationTests.Config.class)
 public class CouchbaseTemplateTransaction2IntegrationTests extends JavaIntegrationTests {
 
@@ -73,6 +80,7 @@ public class CouchbaseTemplateTransaction2IntegrationTests extends JavaIntegrati
 	@Configuration
 	@EnableCouchbaseRepositories("org.springframework.data.couchbase")
 	@EnableReactiveCouchbaseRepositories("org.springframework.data.couchbase")
+	@EnableTransactionManagement
 	static class Config extends AbstractCouchbaseConfiguration {
 
 		@Override
@@ -113,8 +121,6 @@ public class CouchbaseTemplateTransaction2IntegrationTests extends JavaIntegrati
 
 	@BeforeEach
 	public void setUp() {
-
-		// template.setReadPreference(ReadPreference.primary());
 		assertionList = new CopyOnWriteArrayList<>();
 	}
 
@@ -126,10 +132,6 @@ public class CouchbaseTemplateTransaction2IntegrationTests extends JavaIntegrati
 
 	@AfterTransaction
 	public void verifyDbState() {
-
-		// Collection collection = template.getCollection("_default") ;//
-		// client.getDatabase(DB_NAME).getCollection(COLLECTION_NAME);
-
 		Collection<Assassin> p = template.findByQuery(Assassin.class).withConsistency(REQUEST_PLUS).all();
 		System.out.println("assassins: " + p);
 		assertionList.forEach(it -> {
@@ -143,21 +145,22 @@ public class CouchbaseTemplateTransaction2IntegrationTests extends JavaIntegrati
 		});
 	}
 
+	@Test
 	@Rollback(false)
-	@Transactional()
-	@Test // DATAMONGO-1920
+	@Transactional(transactionManager = BeanNames.COUCHBASE_TRANSACTION_MANAGER)
 	public void shouldOperateCommitCorrectly() {
-
+		assert(TestTransaction.isActive());
 		Assassin hu = new Assassin("hu", "Hu Gibbet");
 		template.insertById(Assassin.class).one(hu);
-
 		assertAfterTransaction(hu).isPresent();
 	}
 
-	@Test // DATAMONGO-1920
-	// @Rollback(false) by default on these tests
+	@Test
+	@Disabled // JCBC-1951 - run it twice second time fails.  Recreate bucket, it succeeds
+	@Rollback(true)
+	@Transactional(transactionManager = BeanNames.COUCHBASE_TRANSACTION_MANAGER)
 	public void shouldOperateRollbackCorrectly() {
-
+		assert(TestTransaction.isActive());
 		Assassin vi = new Assassin("vi", "Viridiana Sovari");
 		try {
 			template.removeById(Assassin.class).one(vi.getId()); // could be something that is not an Assassin
@@ -166,9 +169,12 @@ public class CouchbaseTemplateTransaction2IntegrationTests extends JavaIntegrati
 		assertAfterTransaction(vi).isNotPresent();
 	}
 
-	@Test // DATAMONGO-1920
-	// @Rollback(false) by default on these tests
-	public void shouldBeAbleToViewChangesDuringTransaction() throws InterruptedException {
+	@Test
+	@Transactional(BeanNames.COUCHBASE_TRANSACTION_MANAGER)
+	@Disabled // JCBC-1951 - run it twice, second time fails. Recreate bucket, it succeeds
+	@Rollback(true)
+	public void shouldBeAbleToViewChangesDuringTransaction(){
+		assert(TestTransaction.isActive());
 		Assassin durzo = new Assassin("durzo", "Durzo Blint");
 		template.insertById(Assassin.class).one(durzo);
 		Assassin retrieved = template.findById(Assassin.class).one(durzo.getId());
@@ -179,7 +185,7 @@ public class CouchbaseTemplateTransaction2IntegrationTests extends JavaIntegrati
 	// --- Just some helpers and tests entities
 
 	private AfterTransactionAssertion assertAfterTransaction(Assassin assassin) {
-
+		assertInAnnotationTransaction(false);
 		AfterTransactionAssertion<Assassin> assertion = new AfterTransactionAssertion<>(assassin);
 		assertionList.add(assertion);
 		return assertion;

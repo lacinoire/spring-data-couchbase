@@ -4,9 +4,14 @@ import static com.couchbase.client.core.io.CollectionIdentifier.DEFAULT_COLLECTI
 import static com.couchbase.client.core.io.CollectionIdentifier.DEFAULT_SCOPE;
 
 import com.couchbase.client.java.ClusterInterface;
+import com.couchbase.client.java.codec.JsonSerializer;
+import com.couchbase.client.java.transactions.AttemptContextReactiveAccessor;
 import com.couchbase.client.java.transactions.ReactiveTransactionAttemptContext;
-import com.couchbase.transactions.AttemptContextReactiveAccessor;
-import org.springframework.data.couchbase.transaction.CouchbaseStuffHandle;
+import com.couchbase.client.java.transactions.TransactionAttemptContext;
+import com.couchbase.client.java.transactions.Transactions;
+import org.springframework.data.couchbase.transaction.CouchbaseResourceHolder;
+import org.springframework.transaction.NoTransactionException;
+import org.springframework.transaction.reactive.TransactionSynchronizationManager;
 import reactor.core.publisher.Mono;
 
 import java.io.IOException;
@@ -31,12 +36,16 @@ public class SimpleReactiveCouchbaseClientFactory implements ReactiveCouchbaseCl
 	final String bucketName;
 	final String scopeName;
 	final PersistenceExceptionTranslator exceptionTranslator;
+	JsonSerializer serializer;
+	Transactions transactions;
 
 	public SimpleReactiveCouchbaseClientFactory(Cluster cluster, String bucketName, String scopeName) {
 		this.cluster = Mono.just(cluster);
 		this.bucketName = bucketName;
 		this.scopeName = scopeName;
 		this.exceptionTranslator = new CouchbaseExceptionTranslator();
+		this.serializer = cluster.environment().jsonSerializer();
+		this.transactions = cluster.transactions();
 	}
 
 	@Override
@@ -106,21 +115,20 @@ public class SimpleReactiveCouchbaseClientFactory implements ReactiveCouchbaseCl
 
 	@Override
 	public Mono<ClientSession> getSession(ClientSessionOptions options) { // hopefully this gets filled in later
-		return Mono.from(Mono.just(new ClientSessionImpl(this, null))); // .startSession(options));
+		return Mono.just(new ClientSessionImpl(this,  null)); // .startSession(options));
 	}
 
 	@Override
 	public ClientSession getSession(ClientSessionOptions options, ReactiveTransactionAttemptContext atr) {
-		// todo gp needed?
-		return null;
-//		ReactiveTransactionAttemptContext at = atr != null ? atr : AttemptContextReactiveAccessor.newAttemptContextReactive(transactions.reactive());
-//
-//		return new ClientSessionImpl(this, at);
+		if(atr == null){
+			atr = AttemptContextReactiveAccessor.from(AttemptContextReactiveAccessor.newAttemptContextReactive(AttemptContextReactiveAccessor.reactive(transactions)), serializer);
+		}
+		return new ClientSessionImpl(this, atr);
 	}
 
 	@Override
 	public ReactiveCouchbaseClientFactory withSession(ClientSession session) {
-		return new ClientSessionBoundCouchbaseClientFactory(session, this);
+		return new ClientSessionBoundCouchbaseClientFactory(session, this, transactions);
 	}
 
 	@Override
@@ -169,10 +177,12 @@ public class SimpleReactiveCouchbaseClientFactory implements ReactiveCouchbaseCl
 
 		private final ClientSession session;
 		private final ReactiveCouchbaseClientFactory delegate;
+		private final Transactions transactions;
 
-		ClientSessionBoundCouchbaseClientFactory(ClientSession session, ReactiveCouchbaseClientFactory delegate) {
+		ClientSessionBoundCouchbaseClientFactory(ClientSession session, ReactiveCouchbaseClientFactory delegate, Transactions transactions) {
 			this.session = session;
 			this.delegate = delegate;
+			this.transactions = transactions;
 		}
 
 		/*
@@ -239,12 +249,18 @@ public class SimpleReactiveCouchbaseClientFactory implements ReactiveCouchbaseCl
 		 */
 		@Override
 		public Mono<ClientSession> getSession(ClientSessionOptions options) {
-			return Mono.just(getSession(options, null));
+			if(session.getReactiveTransactionAttemptContext() != null){
+				return Mono.just(session);
+			} else {
+				return Mono.just(getSession(options,
+						session.getReactiveTransactionAttemptContext()/*null */)); // todo msr
+			}
 		}
 
 		@Override
 		public ClientSession getSession(ClientSessionOptions options, ReactiveTransactionAttemptContext atr) {
-			return delegate.getSession(options, atr);
+			ClientSession clientSession = delegate.getSession(options, atr);
+			return clientSession;
 		}
 
 		/*

@@ -15,27 +15,34 @@
  */
 package org.springframework.data.couchbase.transaction;
 
+import com.couchbase.client.java.transactions.AttemptContextReactiveAccessor;
 import com.couchbase.client.java.transactions.ReactiveTransactionAttemptContext;
 import com.couchbase.client.java.transactions.TransactionAttemptContext;
 import com.couchbase.client.java.transactions.config.TransactionOptions;
 import org.slf4j.Logger;
 import org.slf4j.LoggerFactory;
 import org.springframework.data.couchbase.CouchbaseClientFactory;
+import org.springframework.lang.Nullable;
+import org.springframework.transaction.IllegalTransactionStateException;
+import org.springframework.transaction.InvalidTimeoutException;
 import org.springframework.transaction.PlatformTransactionManager;
 import org.springframework.transaction.TransactionDefinition;
 import org.springframework.transaction.TransactionException;
 import org.springframework.transaction.TransactionStatus;
 import org.springframework.transaction.reactive.TransactionContextManager;
+import org.springframework.transaction.support.AbstractPlatformTransactionManager;
 import org.springframework.transaction.support.CallbackPreferringPlatformTransactionManager;
+import org.springframework.transaction.support.DefaultTransactionStatus;
 import org.springframework.transaction.support.TransactionCallback;
 import org.springframework.transaction.support.TransactionSynchronizationManager;
+import org.springframework.util.Assert;
 import reactor.core.publisher.Mono;
 
 import java.util.concurrent.atomic.AtomicReference;
 
 // todo gp experimenting with simplest possible CallbackPreferringPlatformTransactionManager, extending PlatformTransactionManager
 // not AbstractPlatformTransactionManager
-public class CouchbaseSimpleCallbackTransactionManager implements CallbackPreferringPlatformTransactionManager {
+public class CouchbaseSimpleCallbackTransactionManager /* extends AbstractPlatformTransactionManager*/ implements CallbackPreferringPlatformTransactionManager {
 
 	private static final Logger LOGGER = LoggerFactory.getLogger(CouchbaseTransactionManager.class);
 
@@ -60,6 +67,12 @@ public class CouchbaseSimpleCallbackTransactionManager implements CallbackPrefer
 				TransactionSynchronizationManager.unbindResourceIfPossible(TransactionAttemptContext.class);
 				TransactionSynchronizationManager.bindResource(TransactionAttemptContext.class, ctx);
 
+				ClientSession session = new ClientSessionImpl(couchbaseClientFactory,
+						AttemptContextReactiveAccessor.reactive(ctx));
+				CouchbaseResourceHolder resourceHolder = new CouchbaseResourceHolder(session, couchbaseClientFactory);
+				TransactionSynchronizationManager.unbindResourceIfPossible(couchbaseClientFactory.getCluster());
+				TransactionSynchronizationManager.bindResource(couchbaseClientFactory.getCluster(), resourceHolder);
+
 				try {
 					execResult.set(callback.doInTransaction(status));
 				}
@@ -73,18 +86,29 @@ public class CouchbaseSimpleCallbackTransactionManager implements CallbackPrefer
 			return execResult.get();
 	}
 
+	/**
+	 * Test transaction infrastructure uses this to determine if transaction is active
+	 *
+	 * @param definition
+	 * @return
+	 * @throws TransactionException
+	 */
 	@Override
-	public TransactionStatus getTransaction(TransactionDefinition definition) throws TransactionException {
-		return null;
+	public TransactionStatus getTransaction(@Nullable TransactionDefinition definition)
+			throws TransactionException {
+		TransactionStatus status = new DefaultTransactionStatus(		null, true, true,
+		false, true, false);
+		return status;
 	}
 
 	@Override
 	public void commit(TransactionStatus status) throws TransactionException {
-		System.out.println("commit");
+			LOGGER.debug("NO-OP: Committing Couchbase Transaction with status {}", status);
 	}
 
 	@Override
 	public void rollback(TransactionStatus status) throws TransactionException {
-		System.out.println("rollback");
+			LOGGER.warn("NO-OP: Rolling back Couchbase Transaction with status {}", status);
 	}
+
 }

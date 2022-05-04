@@ -21,6 +21,8 @@ import com.couchbase.client.java.ClusterInterface;
 import com.couchbase.client.java.Collection;
 import com.couchbase.client.java.Scope;
 import com.couchbase.client.java.transactions.ReactiveTransactionAttemptContext;
+import com.couchbase.client.java.transactions.TransactionAttemptContext;
+import com.couchbase.client.java.transactions.Transactions;
 import org.springframework.data.couchbase.transaction.ClientSession;
 import org.springframework.data.couchbase.transaction.ClientSessionOptions;
 import org.springframework.data.couchbase.transaction.CouchbaseStuffHandle;

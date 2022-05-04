@@ -159,7 +159,6 @@ public abstract class AbstractTemplateSupport {
 		final ConvertingPropertyAccessor<Object> accessor = getPropertyAccessor(entity);
 		final CouchbasePersistentEntity<?> persistentEntity = mappingContext.getRequiredPersistentEntity(entity.getClass());
 		final CouchbasePersistentProperty versionProperty = persistentEntity.getVersionProperty();
-
 		long cas = 0;
 		if (versionProperty != null) {
 			Object casObject = accessor.getProperty(versionProperty);
@@ -168,6 +167,17 @@ public abstract class AbstractTemplateSupport {
 			}
 		}
 		return cas;
+	}
+
+	public Object getId(final Object entity) {
+		final ConvertingPropertyAccessor<Object> accessor = getPropertyAccessor(entity);
+		final CouchbasePersistentEntity<?> persistentEntity = mappingContext.getRequiredPersistentEntity(entity.getClass());
+		final CouchbasePersistentProperty idProperty = persistentEntity.getIdProperty();
+		Object id = null;
+		if (idProperty != null) {
+			id = accessor.getProperty(idProperty);
+		}
+		return id;
 	}
 
 	public String getJavaNameForEntity(final Class<?> clazz) {

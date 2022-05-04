@@ -15,8 +15,6 @@
  */
 package org.springframework.data.couchbase.core;
 
-import com.couchbase.client.java.transactions.TransactionGetResult;
-import org.springframework.data.couchbase.repository.support.TransactionResultHolder;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
@@ -28,6 +26,7 @@ import org.slf4j.LoggerFactory;
 import org.springframework.data.couchbase.core.mapping.CouchbaseDocument;
 import org.springframework.data.couchbase.core.query.OptionsBuilder;
 import org.springframework.data.couchbase.core.support.PseudoArgs;
+import org.springframework.data.couchbase.repository.support.TransactionResultHolder;
 import org.springframework.data.couchbase.transaction.CouchbaseStuffHandle;
 import org.springframework.transaction.reactive.TransactionalOperator;
 import org.springframework.util.Assert;
@@ -108,22 +107,18 @@ public class ReactiveInsertByIdOperationSupport implements ReactiveInsertByIdOpe
 		public Mono<T> one(T object) {
 			PseudoArgs<InsertOptions> pArgs = new PseudoArgs(template, scope, collection, options, txCtx, domainType);
 			LOG.trace("insertById {}", pArgs);
+			Mono<ReactiveCouchbaseTemplate> tmpl = template.doGetTemplate();
 
-			return GenericSupport.one(template, scope, collection, support, object,
-					(GenericSupportHelper support) -> {
-						return support.collection.reactive().insert(support.converted.getId(), support.converted.export(), buildOptions(pArgs.getOptions(), support.converted))
-								.flatMap(result ->
-										this.support.applyResult(object, support.converted, support.converted.getId(), result.cas(), null));
-					},
-					(GenericSupportHelper support) -> {
-						return template.doGetTemplate()
-								// todo gp this runnable probably not great
-								.flatMap(tp -> Mono.defer(() -> {
-									TransactionGetResult result = support.ctx.insert(support.collection, support.converted.getId(), support.converted.getContent());
-									// todo gp don't have result.cas() anymore - needed?
-									return this.support.applyResult(object, support.converted, support.converted.getId(), 0L, new TransactionResultHolder(result), null);
-								}));
-					});
+			return GenericSupport.one(tmpl, pArgs.getScope(), pArgs.getCollection(), support, object,
+					(GenericSupportHelper support) -> support.collection
+							.insert(support.converted.getId(), support.converted.export(),
+									buildOptions(pArgs.getOptions(), support.converted))
+							.flatMap(result -> this.support.applyResult(object, support.converted, support.converted.getId(),
+									result.cas(), null)),
+					(GenericSupportHelper support) -> support.ctx
+							.insert(support.collection, support.converted.getId(), support.converted.getContent())
+							.flatMap(result -> this.support.applyResult(object, support.converted, support.converted.getId(), 0L,
+									new TransactionResultHolder(result), null)));
 		}
 
 		@Override
@@ -161,7 +156,8 @@ public class ReactiveInsertByIdOperationSupport implements ReactiveInsertByIdOpe
 					durabilityLevel, expiry, txCtx, support);
 		}
 
-		// todo gp need to figure out how to handle options re transactions.  E.g. many non-transactional insert options, like this, aren't supported
+		// todo gp need to figure out how to handle options re transactions. E.g. many non-transactional insert options,
+		// like this, aren't supported
 		@Override
 		public InsertByIdInScope<T> withDurability(final PersistTo persistTo, final ReplicateTo replicateTo) {
 			Assert.notNull(persistTo, "PersistTo must not be null.");

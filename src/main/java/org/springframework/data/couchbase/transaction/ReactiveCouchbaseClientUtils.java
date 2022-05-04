@@ -140,7 +140,6 @@ public class ReactiveCouchbaseClientUtils {
 		//		.getResource(factory);
 
 		return TransactionSynchronizationManager.forCurrentTransaction()
-				.flatMap(x -> {return Mono.just(x);})
 				.filter(TransactionSynchronizationManager::isSynchronizationActive) //
 				.flatMap(synchronizationManager -> {
 					return doGetSession(synchronizationManager, factory, sessionSynchronization) //
@@ -184,8 +183,9 @@ public class ReactiveCouchbaseClientUtils {
 		if (registeredHolder != null
 				&& (registeredHolder.hasSession() || registeredHolder.isSynchronizedWithTransaction())) {
 			System.err.println("doGetSession: got: "+registeredHolder.getSession());
-			return registeredHolder.hasSession() ? Mono.just(registeredHolder.getSession())
-					: createClientSession(dbFactory).map(registeredHolder::setSessionIfAbsent);
+			// TODO msr - mabye don't create a session unless it has an atr?
+			return registeredHolder.hasSession() && registeredHolder.getSession().getReactiveTransactionAttemptContext() != null ? Mono.just(registeredHolder.getSession())
+					: createClientSession(dbFactory).map(registeredHolder::setSession);
 		}
 
 		if (SessionSynchronization.ON_ACTUAL_TRANSACTION.equals(sessionSynchronization)) {
@@ -198,7 +198,7 @@ public class ReactiveCouchbaseClientUtils {
 		// init a non native MongoDB transaction by registering a MongoSessionSynchronization
 		return createClientSession(dbFactory).map(session -> {
 
-			ReactiveCouchbaseResourceHolder newHolder = new ReactiveCouchbaseResourceHolder(session, dbFactory);
+			ReactiveCouchbaseResourceHolder newHolder = new ReactiveCouchbaseResourceHolder(session);
 			newHolder.getRequiredSession().startTransaction();
 
 			synchronizationManager

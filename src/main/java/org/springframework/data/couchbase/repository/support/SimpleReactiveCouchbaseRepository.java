@@ -17,6 +17,8 @@
 package org.springframework.data.couchbase.repository.support;
 
 import com.couchbase.client.java.CommonOptions;
+import org.springframework.data.mapping.PersistentPropertyAccessor;
+import org.springframework.data.mapping.model.ConvertingPropertyAccessor;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.Mono;
 
@@ -183,7 +185,7 @@ public class SimpleReactiveCouchbaseRepository<T, ID> extends CouchbaseRepositor
 	@Override
 	public Mono<Void> delete(T entity) {
 		Assert.notNull(entity, "Entity must not be null!");
-		return operations.removeById(getJavaType()).inScope(getScope()).inCollection(getCollection()).one(getId(entity))
+		return operations.removeById(getJavaType()).inScope(getScope()).inCollection(getCollection()).oneEntity(entity)
 				.then();
 	}
 
@@ -196,7 +198,7 @@ public class SimpleReactiveCouchbaseRepository<T, ID> extends CouchbaseRepositor
 	@Override
 	public Mono<Void> deleteAll(Iterable<? extends T> entities) {
 		return operations.removeById(getJavaType()).inScope(getScope()).inCollection(getCollection())
-				.all(Streamable.of(entities).map(this::getId).toList()).then();
+				.allEntities((java.util.Collection<Object>)(Streamable.of(entities).toList())).then();
 	}
 
 	@Override

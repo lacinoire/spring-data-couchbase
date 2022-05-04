@@ -37,7 +37,7 @@ import org.springframework.transaction.support.ResourceHolderSupport;
 public class ReactiveCouchbaseResourceHolder extends ResourceHolderSupport {
 
 	private @Nullable ClientSession session; // which holds the atr
-	private ReactiveCouchbaseClientFactory databaseFactory;
+	//private ReactiveCouchbaseClientFactory databaseFactory;
 
 	/**
 	 * Create a new {@link ReactiveCouchbaseResourceHolder} for a given {@link ClientSession session}.
@@ -45,10 +45,10 @@ public class ReactiveCouchbaseResourceHolder extends ResourceHolderSupport {
 	 * @param session the associated {@link ClientSession}. Can be {@literal null}.
 	 * @param databaseFactory the associated {@link CouchbaseClientFactory}. must not be {@literal null}.
 	 */
-	public ReactiveCouchbaseResourceHolder(@Nullable ClientSession session, ReactiveCouchbaseClientFactory databaseFactory) {
+	public ReactiveCouchbaseResourceHolder(@Nullable ClientSession session) {
 
 		this.session = session;
-		this.databaseFactory = databaseFactory;
+		//this.databaseFactory = databaseFactory;
 	}
 
 	/**
@@ -73,20 +73,22 @@ public class ReactiveCouchbaseResourceHolder extends ResourceHolderSupport {
 		return session;
 	}
 
-	/**
+	/*
 	 * @return the associated {@link CouchbaseClientFactory}.
-	 */
+
 	ReactiveCouchbaseClientFactory getDatabaseFactory() {
 		return databaseFactory;
 	}
+	 */
 
 	/**
 	 * Set the {@link ClientSession} to guard.
 	 *
 	 * @param session can be {@literal null}.
 	 */
-	void setSession(@Nullable ClientSession session) {
-		this.session = session;
+	ClientSession setSession(@Nullable ClientSession session) {
+		System.err.println("setSession: "+session);
+		return this.session = session;
 	}
 
 	/**
